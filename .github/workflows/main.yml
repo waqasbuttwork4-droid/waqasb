@@ -30,7 +30,7 @@ jobs:
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Secure Password
-        id: rdp_creds_step # Add an ID to reference this step's outputs
+        id: rdp_creds_step
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
@@ -51,7 +51,6 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-          # Use GITHUB_OUTPUT to pass variables to other steps securely
           echo "rdp_password=$password" >> "$GITHUB_OUTPUT"
           
           if (-not (Get-LocalUser -Name "RDP")) {
@@ -65,7 +64,8 @@ jobs:
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", ""$installerPath"", "/quiet", "/norestart" -Wait
+          # Corrected line to properly pass arguments to msiexec.exe
+          Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
           Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
@@ -102,7 +102,6 @@ jobs:
 
       - name: Maintain Connection
         run: |
-          # Use `::add-mask::` to hide the password from logs
           $password = "${{ steps.rdp_creds_step.outputs.rdp_password }}"
           echo "::add-mask::$password"
           
@@ -112,7 +111,6 @@ jobs:
           Write-Host "Password: $password"
           Write-Host "==================`n"
           
-          # Keep runner active indefinitely (or until manually cancelled)
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
