@@ -110,7 +110,12 @@ jobs:
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host "==================`n"
           
-          while ($true) {
+          # Calculate approximate seconds for 1 year (365 days)
+          $oneYearInSeconds = 365 * 24 * 60 * 60
+          $startTime = Get-Date
+          $endTime = $startTime.AddSeconds($oneYearInSeconds)
+          
+          while ((Get-Date) -lt $endTime) {
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
           }
