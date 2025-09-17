@@ -47,18 +47,118 @@ jobs:
           $rawPassword += $charSet.Special | Get-Random -Count 4
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Create user and add to groups
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-          echo "rdp_password=$password" >> "$GITHUB_OUTPUT"
+          # FIXED: Proper output formatting for GitHub Actions
+          Write-Output "rdp_password=$password" >> $env:GITHUB_OUTPUT
           
-          if (-not (Get-LocalUser -Name "RDP")) {
-              Write-Error "User creation failed"
+          # FIXED: Additional validation and logging
+          $user = Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue
+          if (-not $user) {
+              Write-Error "❌ User creation failed"
               exit 1
+          } else {
+              Write-Host "✅ User 'RDP' created successfully"
+              Write-Host "✅ Password generated: $password"
           }
 
       - name: Install Tailscale
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP
+          $installerPath = "$env:TEMP\tailscale.msi"
+          
+          Write-Host "📥 Downloading Tailscale installer..."
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          
+          Write-Host "🔧 Installing Tailscale..."
+          Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
+          Remove-Item $installerPath -Force
+          
+          Write-Host "✅ Tailscale installation completed"
+
+      - name: Establish Tailscale Connection
+        run: |
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          Write-Host "🔗 Connecting to Tailscale network..."
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          
+          # Wait for Tailscale to assign an IP
+          $tsIP = $null
+          $retries = 0
+          Write-Host "⏳ Waiting for Tailscale IP assignment..."
+          while (-not $tsIP -and $retries -lt 10) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              if ($tsIP) {
+                  Write-Host "✅ Tailscale IP assigned: $tsIP"
+                  break
+              }
+              Start-Sleep -Seconds 5
+              $retries++
+              Write-Host "⏳ Retry $retries/10..."
+          }
+          
+          if (-not $tsIP) {
+              Write-Error "❌ Tailscale IP not assigned after 10 retries. Exiting."
+              exit 1
+          }
+          
+          # FIXED: Proper environment variable setting
+          Write-Output "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          Write-Host "🔍 Verifying RDP accessibility..."
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          
+          # Test connectivity using Test-NetConnection against the Tailscale IP on port 3389
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+              Write-Error "❌ TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "✅ TCP connectivity successful!"
+
+      - name: Maintain Connection and Display Credentials
+        run: |
+          $password = "${{ steps.rdp_creds_step.outputs.rdp_password }}"
+          
+          # FIXED: Better password handling and display
+          if (-not $password) {
+              Write-Error "❌ Password not found in step outputs"
+              exit 1
+          }
+          
+          # Mask the password in logs for security
+          echo "::add-mask::$password"
+          
+          # FIXED: Enhanced credential display with clear formatting
+          Write-Host ""
+          Write-Host "╔══════════════════════════════════════════════════════════════════════════════╗"
+          Write-Host "║                              🖥️  RDP ACCESS CREDENTIALS                        ║"
+          Write-Host "╠══════════════════════════════════════════════════════════════════════════════╣"
+          Write-Host "║  📍 Address:  $env:TAILSCALE_IP                                    ║"
+          Write-Host "║  👤 Username: RDP                                                            ║"
+          Write-Host "║  🔑 Password: $password                                ║"
+          Write-Host "╚══════════════════════════════════════════════════════════════════════════════╝"
+          Write-Host ""
+          
+          # FIXED: Additional logging for troubleshooting
+          Write-Host "🔧 Connection Instructions:"
+          Write-Host "   1. Open Remote Desktop Connection (mstsc)"
+          Write-Host "   2. Enter the Tailscale IP address: $env:TAILSCALE_IP"
+          Write-Host "   3. Use username: RDP"
+          Write-Host "   4. Use the password shown above"
+          Write-Host ""
+          
+          # Keep the connection alive
+          $startTime = Get-Date
+          while ($true) {
+              $currentTime = Get-Date
+              $elapsed = $currentTime - $startTime
+              Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] 🟢 RDP Active - Elapsed: $($elapsed.ToString('hh\:mm\:ss')) - Use Ctrl+C in workflow to terminate"
+              Start-Sleep -Seconds 300
+          }
