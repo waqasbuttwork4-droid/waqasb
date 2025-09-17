@@ -30,7 +30,7 @@ jobs:
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Secure Password
-        id: rdp_creds_step
+        id: rdp_creds_step # Is ID ka hona zaroori hai
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
@@ -51,7 +51,7 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-          echo "rdp_password=$password" >> "$GITHUB_OUTPUT"
+          echo "rdp_password=$password" >> "$GITHUB_OUTPUT" # Is line ko check karein
           
           if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"
@@ -64,7 +64,6 @@ jobs:
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          # Corrected line to properly pass arguments to msiexec.exe
           Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait
           Remove-Item $installerPath -Force
 
